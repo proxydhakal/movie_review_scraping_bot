@@ -112,6 +112,6 @@ def scrape_steam_reviews():
             logger.info(f"✅ Saved final batch. Total scraped: {total_new}")
 
     finally:
-        browser.close_browser()
+        page.close()
         logger.info("🛑 Browser closed.")
 
