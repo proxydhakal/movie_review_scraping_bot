@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: steam-scraper-bot
+    depends_on:
+      - db
+    volumes:
+      - ./output:/app/output
+    env_file:
+      - .env
+    command: python -m robocorp.tasks run tasks.py
+
+  db:
+    image: postgres:15
+    container_name: steam-scraper-db
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+volumes:
+  pgdata:
