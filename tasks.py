@@ -13,23 +13,37 @@ from utils.helper import (
 
 # === Configuration ===
 APP_ID = "220"
-REVIEW_LIMIT = 200
 SCROLL_DELAY = 1.5
 BATCH_SIZE = 10
 
-REVIEW_URL = f"https://steamcommunity.com/app/{APP_ID}/reviews/?browsefilter=toprated&snr=1_5_100010_"
+REVIEW_PAGE_URL = f"https://steamcommunity.com/app/{APP_ID}/reviews/?browsefilter=toprated&snr=1_5_100010_"
+STORE_PAGE_URL = f"https://store.steampowered.com/app/{APP_ID}/HalfLife_2/#app_reviews_hash"
+
+def get_total_review_count():
+    store_page = browser.goto(STORE_PAGE_URL)
+    store_page.wait_for_selector("#user_reviews_filter_score", timeout=10000)
+
+    text = store_page.query_selector("#user_reviews_filter_score span").inner_text()
+    match = re.search(r"Showing\s+([\d,]+)\s+reviews", text)
+    store_page.close()
+
+    if match:
+        return int(match.group(1).replace(",", ""))
+    raise Exception("Could not parse total review count from store page.")
 
 @task
 def scrape_steam_reviews():
     browser.configure(
         browser_engine="chromium",
         headless=True,
-        screenshot="only-on-failure",
-        slowmo=500
+        screenshot="only-on-failure"
     )
 
     try:
-        page = browser.goto(REVIEW_URL)
+        total_reviews = get_total_review_count()
+        logger.info(f"🧮 Total reviews available: {total_reviews}")
+
+        page = browser.goto(REVIEW_PAGE_URL)
         page.wait_for_selector("div.apphub_Card", timeout=10000)
 
         seen_reviews = fetch_existing_reviews(int(APP_ID))
@@ -41,7 +55,7 @@ def scrape_steam_reviews():
 
         create_reviews_table()
 
-        while total_new < REVIEW_LIMIT:
+        while total_new < total_reviews:
             review_blocks = page.query_selector_all("div.apphub_Card")
 
             for block in review_blocks:
@@ -65,7 +79,7 @@ def scrape_steam_reviews():
                     if not content or content in seen_reviews:
                         continue
 
-                    seen_reviews.add(content)  # Avoid duplicates
+                    seen_reviews.add(content)
                     found_helpful_text = block.query_selector("div.found_helpful")
                     helpful = funny = 0
                     if found_helpful_text:
@@ -92,20 +106,22 @@ def scrape_steam_reviews():
                         save_reviews_to_csv_incremental(reviews_batch, int(APP_ID))
                         reviews_batch.clear()
 
-                    if total_new >= REVIEW_LIMIT:
+                        percentage = (total_new / total_reviews) * 100
+                        logger.info(f"✅ Progress: {total_new}/{total_reviews} ({percentage:.2f}%)")
+
+                    if total_new >= total_reviews:
                         break
 
                 except Exception as e:
                     logger.warning(f"⚠️ Skipping review due to error: {e}")
 
             logger.info(f"📝 Collected so far: {total_new} reviews")
-            if total_new >= REVIEW_LIMIT:
+            if total_new >= total_reviews:
                 break
 
             page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
             sleep(SCROLL_DELAY)
 
-        # Save any remaining batch
         if reviews_batch:
             insert_reviews_into_db_incremental(reviews_batch, int(APP_ID))
             save_reviews_to_csv_incremental(reviews_batch, int(APP_ID))
@@ -114,4 +130,3 @@ def scrape_steam_reviews():
     finally:
         page.close()
         logger.info("🛑 Browser closed.")
-
